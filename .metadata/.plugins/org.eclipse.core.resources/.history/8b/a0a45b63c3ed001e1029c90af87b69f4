@@ -1,0 +1,230 @@
+/**
+  * @file 	main.c
+  * @brief main Source file.
+  *
+  * This file contains the main of the Application
+  *
+  * @author [Mohamed Mabrouk]
+  * @date [16 MAR 2024]
+  *
+  * @SWversion 1.0.0
+  *
+  * @remarks
+  *    -Platform         : AVR
+  *    -Peripherial      : Atmega32
+  */
+  /*==================================================================================================================================*/
+
+/* ===================================================================================================
+											      Includes
+	===================================================================================================*/
+#include"util/delay.h"
+#include"APP/app.h"
+/* ===================================================================================================
+                                              Global Variables
+   ===================================================================================================*/
+uint8 Error_state = NORMAL;
+uint8 try=0;
+/* ===================================================================================================
+									             Main Project
+   ===================================================================================================*/
+int main(void)
+{
+	ENABLE_INTERRUPTS();
+
+	uint8 state;
+
+	/* Initialize HMI system */
+	HMI_sysInit();
+
+	uint8 reenter_check = PASS_UNMATCHED;
+
+	/* Loop until reenter_check is not equal to 0 */
+	do {
+	    /* Send That HMI ECU ready to send signal */
+	    UART_sendByte(MCU1_READYTOSEND);
+
+	    /* Wait until Control ECU is ready to receive */
+	    while (UART_recieveByte() != MCU2_READYTORECIEVE);
+
+	    /* Set a new password through HMI ECU */
+	    HMI_setNewPassword();
+
+	    /* Reenter the password through HMI ECU */
+	    HMI_ReenterPassword();
+
+	    /* Send Control ECU ready to send signal */
+	    while (UART_recieveByte() != MCU2_READYTOSEND);
+	    UART_sendByte(MCU1_READYTORECIEVE);
+
+	    /* Receive reenter_check value */
+	    if(reenter_check == PASS_UNMATCHED)
+			{
+				LCD_displayString(" PASS UNMATCHED");
+				_delay_ms(1000);
+			}
+			else if(reenter_check == PASS_MATCHED)
+			{
+				LCD_displayString("  PASS MATCHED  ");
+				_delay_ms(1000);
+			}
+	    reenter_check = UART_recieveByte();
+	} while (reenter_check == PASS_UNMATCHED);
+
+	/* Reset reenter_check */
+	reenter_check = 0;
+
+	/* Clear LCD screen */
+	LCD_clearScreen();
+
+	/* Display options on LCD */
+	LCD_displayStringRowColumn(0, 0, "+ : Open Door");
+	LCD_displayStringRowColumn(1, 0, "- : Change Pass");
+	for(;;)
+	{
+		/* Get the pressed key from the keypad */
+		state = KEYPAD_getPressedKey();
+
+		/* Check if the pressed key is '+' */
+		if (state == '+') {
+		    /* Continuously check the password through HMI */
+		    do {
+		    	  try++;
+				  if(try == MAX_PASS_TRIES)
+				  {
+					  Error_state = STATE_ERROR;
+					  TIMER_init(&TIMER_Configuration);
+					  break;
+				  }
+		        HMI_checkPassword();
+		        /* Wait until Control_ECU is ready to send */
+		        while (UART_recieveByte() != MCU2_READYTOSEND);
+		        /* Send HMI_ECU ready to receive */
+		        UART_sendByte(MCU1_READYTORECIEVE);
+		        /* Receive reenter_check value */
+		        reenter_check = UART_recieveByte();
+			    if(reenter_check == PASS_UNMATCHED)
+					{
+						LCD_displayString(" INCORRECT PASS");
+						_delay_ms(1000);
+					}
+					else if(reenter_check == PASS_MATCHED)
+					{
+						LCD_displayString("  CORRECT PASS");
+						_delay_ms(1000);
+					}
+		    } while (reenter_check == PASS_UNMATCHED);
+
+		    if(Error_state == STATE_ERROR)
+		    {
+				LCD_clearScreen();
+				LCD_displayString("      Error ");
+  			    while(Error_state == STATE_ERROR);
+  			    try=0;
+		    }
+		    else
+		    {
+		    try=0;
+		    /* Send a ready-to-send signal to the Control_ECU */
+		    UART_sendByte(MCU1_READYTOSEND);
+		    /* Wait for a ready-to-receive signal from the Control_ECU */
+		    while(UART_recieveByte() != MCU2_READYTORECIEVE);
+		    /* Send a signal to indicate password check */
+		    UART_sendByte(OPEN_DOOR);
+
+		    TIMER_init(&TIMER_Configuration);
+		    /* Clear the LCD screen */
+		    LCD_clearScreen();
+		    /* Display "Door is UnLocking" message on the LCD */
+		    LCD_displayStringRowColumn(0, 4,"Door is");
+		    LCD_displayStringRowColumn(1, 3,"UnLocking");
+		    }
+			}
+		/* Check if the pressed key is '-' */
+		else if (state == '-') {
+		    /* Continuously check the password through HMI */
+		    do {
+		    	  try++;
+		    	  if(try == MAX_PASS_TRIES)
+		    	  {
+		    		  Error_state = STATE_ERROR;
+					  TIMER_init(&TIMER_Configuration);
+		    		  break;
+		    	  }
+		        HMI_checkPassword();
+		        /* Wait until Control_ECU is ready to send */
+		        while (UART_recieveByte() != MCU2_READYTOSEND);
+		        /* Send MCU1 ready to receive */
+		        UART_sendByte(MCU1_READYTORECIEVE);
+		        /* Receive reenter_check value */
+		        reenter_check = UART_recieveByte();
+			    if(reenter_check == PASS_INCORRECT)
+					{
+						LCD_displayString(" INCORRECT PASS");
+						_delay_ms(1000);
+					}
+					else if(reenter_check == PASS_CORRECT)
+					{
+						LCD_displayString("  CORRECT PASS");
+						_delay_ms(1000);
+					}
+		    } while (reenter_check == PASS_INCORRECT);
+		    		if(Error_state == STATE_ERROR)
+		  		    {
+		    			LCD_clearScreen();
+		  		    	LCD_displayString("      Error ");
+		  			    while(Error_state == STATE_ERROR);
+		  		    	Error_state=NORMAL;
+		    			LCD_clearScreen();
+		  			    LCD_displayStringRowColumn(0, 0, "+ : Open Door");
+		  			    LCD_displayStringRowColumn(1, 0, "- : Change Pass");
+		  			    try=0;
+		  		    }
+		  		    else
+		  		    {
+		  		try=0;
+		    	/* Reset reenter_check */
+		    	reenter_check = PASS_UNMATCHED;
+		        /* Send MCU1 ready to send signal */
+		        UART_sendByte(MCU1_READYTOSEND);
+		        /* Wait until Control_ECU is ready to receive */
+		        while (UART_recieveByte() != MCU2_READYTORECIEVE);
+		        /* Send CHANGEPASS signal to initiate password change */
+		        UART_sendByte(CHANGEPASS);
+
+		    /* Continuously perform password change process */
+		    do {
+		        /* Send MCU1 ready to send signal */
+		        UART_sendByte(MCU1_READYTOSEND);
+		        /* Wait until Control_ECU is ready to receive */
+		        while (UART_recieveByte() != MCU2_READYTORECIEVE);
+		        /* Set a new password through HMI */
+		        HMI_setNewPassword();
+		        /* Reenter the new password through HMI */
+		        HMI_ReenterPassword();
+		        /* Wait until Control_ECU is ready to send */
+		        while (UART_recieveByte() != MCU2_READYTOSEND);
+		        /* Send MCU1 ready to receive */
+		        UART_sendByte(MCU1_READYTORECIEVE);
+		        /* Receive reenter_check value */
+		        reenter_check = UART_recieveByte();
+		        if(reenter_check == PASS_UNMATCHED)
+					{
+						LCD_displayString(" PASS UNMATCHED");
+						_delay_ms(1000);
+					}
+					else if(reenter_check == PASS_MATCHED)
+					{
+						LCD_displayString("  PASS MATCHED  ");
+						_delay_ms(1000);
+					}
+		    } while (reenter_check == PASS_UNMATCHED);
+		  		    }
+		    /* Clear the LCD screen */
+		    LCD_clearScreen();
+		    /* Display options on LCD */
+		    LCD_displayStringRowColumn(0, 0, "+ : Open Door");
+		    LCD_displayStringRowColumn(1, 0, "- : Change Pass");
+		}
+}
+}

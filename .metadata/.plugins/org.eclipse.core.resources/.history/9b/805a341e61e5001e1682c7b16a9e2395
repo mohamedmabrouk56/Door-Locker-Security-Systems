@@ -1,0 +1,156 @@
+/**
+ * @file 	app.c
+ * @brief APP Source file.
+ *
+ * This file contains The Application of Door Locker - security system
+ *
+ * @author [Mohamed Mabrouk]
+ * @date [16 MAR 2024]
+ *
+ * @SWversion 1.0.0
+ *
+ * @remarks
+ *    -Platform         : AVR
+ *    -Peripherial      : Atmega32
+ */
+/*==================================================================================================================================*/
+
+/* ===================================================================================================
+										   Includes
+   ===================================================================================================*/
+#include "app.h"
+
+/* ===================================================================================================
+                                              Global Variables
+   ===================================================================================================*/
+
+uint8 Password[MAX_NUM_OF_DIGITS] = { 0 };
+uint8 ReEnterPass[MAX_NUM_OF_DIGITS] = { 0 };
+uint8 opendoor_ticks = 0;
+uint8 Error_state = NORMAL;
+uint8 Error_state_ticks = 0;
+
+/* ===================================================================================================
+                                              Function Definition
+   ===================================================================================================*/
+
+/**
+ *
+ * This function Initiallizes the System Modules
+ *
+ * @param[in]  none
+ * @param[out]  none
+ * @return none
+ */
+void CONTROL_sysInit(void)
+{
+
+	UART_init(&UART_Configuration);
+
+	DcMotor_init();
+
+	TWI_init(&TWI_Configuration);
+
+	/* Set up a callback function for Timer 1 As to CONTROL_openDoor */
+	TIMER_setCallBack(TIMER1, CONTROL_openDoor);
+
+	Buzzer_init();
+}
+
+
+/**
+ * This function saves a new password received via UART.
+ *
+ * @param None
+ * @return None
+ */
+void CONTROL_newPasswordSave(void)
+{
+    uint8 Pass_digit;
+
+    /* Loop till get each digit of the password */
+    for (Pass_digit = 0; Pass_digit < MAX_NUM_OF_DIGITS - 1; Pass_digit++)
+    {
+    	/* Receive send digit of the password via UART */
+        Password[Pass_digit] = UART_recieveByte();
+    }
+}
+
+/**
+ * This function checks if the entered password matches the saved password received via UART.
+ *
+ * @param None
+ * @return uint8
+ */
+uint8 CONTROL_passwordCheck(void)
+{
+    uint8 Pass_digitnum;
+    uint8 Pass_digit;
+    /* Counter to track the number of correct digits of the Password */
+    uint8 Correct_num = 0;
+
+    /* Loop through each digit of the entered password */
+    for (Pass_digitnum = 0; Pass_digitnum < MAX_NUM_OF_DIGITS - 1; Pass_digitnum++)
+    {
+        ReEnterPass[Pass_digitnum] = UART_recieveByte(); /* Receive a byte (digit) of the password via UART */
+        EEPROM_readByte(0x100 + Pass_digitnum, &Pass_digit);
+        /* Check if the received digit matches the corresponding digit of the saved password */
+        if (ReEnterPass[Pass_digitnum] == Pass_digit )
+        {
+            Correct_num++; /* Increment correct digit counter */
+        }
+    }
+
+    /* Check if all digits are correct */
+    if (Correct_num == MAX_NUM_OF_DIGITS - 1)
+    {
+    	/* Return PASS_CORRECT if all digits are correct */
+        return PASS_CORRECT;
+    }
+    else
+    {
+    	/* Return PASS_INCORRECT if any digit is incorrect */
+        return PASS_INCORRECT;
+    }
+}
+
+void CONTROL_openDoor(void)
+{
+	opendoor_ticks++;
+	if(opendoor_ticks == 2)
+	{
+		TIMER_setCompareMatch(TIMER1, 23437);
+		DcMotor_Rotate(STOP, 0);
+	}
+	else if (opendoor_ticks == 3)
+	{
+		TIMER_setCompareMatch(TIMER1, 58594);
+		DcMotor_Rotate(ANTICLOCKWISE, 0);
+	}
+	else if (opendoor_ticks == 4)
+	{
+		DcMotor_Rotate(STOP, 0);
+		TIMER_deInit(TIMER1);
+		opendoor_ticks = 0;
+	}
+	else if (Error_state_ticks < 8 && Error_state == ERROR)
+	{
+
+	}
+	else if (Error_state_ticks >= 8 && Error_state == ERROR)
+	{
+		Error_state = NORMAL;
+		Error_state_ticks = 0;
+		TIMER_deInit(TIMER1);
+
+	}
+}
+
+
+void CONTROL_savePasswordMemory(void)
+{
+for(uint8 i = 0 ; i<5 ; i++)
+{
+	EEPROM_writeByte(0x100+i, Password[i]);
+}
+}

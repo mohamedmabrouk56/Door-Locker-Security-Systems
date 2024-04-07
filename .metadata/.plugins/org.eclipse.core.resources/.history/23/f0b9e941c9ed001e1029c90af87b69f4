@@ -1,0 +1,173 @@
+/**
+  * @file 	main.c
+  * @brief main Source file.
+  *
+  * This file contains the main of the Application
+  *
+  * @author [Mohamed Mabrouk]
+  * @date [16 MAR 2024]
+  *
+  * @SWversion 1.0.0
+  *
+  * @remarks
+  *    -Platform         : AVR
+  *    -Peripherial      : Atmega32
+  */
+  /*==================================================================================================================================*/
+
+/* ===================================================================================================
+											      Includes
+	===================================================================================================*/
+#include"util/delay.h"
+#include"APP/app.h"
+/* ===================================================================================================
+                                              Global Variables
+   ===================================================================================================*/
+uint8 try=0;
+/* ===================================================================================================
+									             Main Project
+   ===================================================================================================*/
+int main(void)
+{
+	/* Enable global Interrupt Enable */
+	ENABLE_INTERRUPTS();
+
+	uint8 MatchedPass = PASS_UNMATCHED;
+	uint8 received = RECIEVED_NOTHING;
+	/* Initialize the control system */
+	CONTROL_sysInit();
+
+	/* Loop until the MatchedPass is changed */
+	while (MatchedPass == PASS_UNMATCHED)
+	{
+	    /* Check if data is available to receive */
+	    if (BIT_IS_SET(UCSRA, RXC))
+	    {
+	        /* Check if HMI_ECU is ready to send */
+	        if (UART_recieveByte() == MCU1_READYTOSEND)
+	        {
+	            /* Send that Control ECU is ready to receive signal */
+	            UART_sendByte(MCU2_READYTORECIEVE);
+	        }
+
+	        /* Save new password */
+	        CONTROL_newPasswordSave();
+
+	        /* Save the Password in the eeprom */
+	    	CONTROL_savePasswordMemory();
+
+	        /* Check the password */
+	        MatchedPass = CONTROL_passwordCheck();
+
+	        /* Send Control_ECU ready to send signal */
+	        UART_sendByte(MCU2_READYTOSEND);
+
+	        /* Wait until HMI_ECU is ready to receive */
+	        while (UART_recieveByte() != MCU1_READYTORECIEVE);
+
+            /* Send if password are matched or not to HMI_ECU */
+	        UART_sendByte(MatchedPass);
+	    }
+	}
+
+
+for(;;)
+{
+	/* Re initiallize Matchedpass as unmatched to reuse it if needed */
+	MatchedPass = PASS_UNMATCHED;
+
+	/* Check if HMI_ECU is ready to send */
+	if (UART_recieveByte() == MCU1_READYTOSEND) {
+	    /* Send Control_ECU ready to receive signal */
+	    UART_sendByte(MCU2_READYTORECIEVE);
+
+	    /* Receive the required action from UART */
+	    received = UART_recieveByte();
+	}
+
+	/* Check received data */
+	if (received == CHECKPASS) {
+	    /* Check the password */
+	    MatchedPass = CONTROL_passwordCheck();
+
+	    /* Send Control ECU ready to send signal */
+	    UART_sendByte(MCU2_READYTOSEND);
+
+	    /* Wait until HMI_ECU is ready to receive */
+	        while (UART_recieveByte() != MCU1_READYTORECIEVE);
+
+	        /* Send if password are matched or not to HMI_ECU */
+	        UART_sendByte(MatchedPass);
+
+	        if (MatchedPass == PASS_MATCHED)
+	        {
+	            try = 0; /* Reset tries counter */
+	        }
+	        else
+	        {
+	        	/* Increment tries counter */
+	            try++;
+	        }
+
+	        if (try == MAX_PASS_TRIES)
+	        {
+	        	/* Initialize the timer to count 1 min */
+	            TIMER_init(&TIMER_Configuration);
+	            /* Set the State as error state */
+	            Error_state = STATE_ERROR;
+	            /* Turn on the buzzer */
+	            BUZZER_on();
+	            try = 0; /* Reset 'try' counter */
+
+	            /* Wait until the error state is resolved */
+	            while (Error_state == STATE_ERROR);
+	        }
+
+	        /* Reset received flag */
+	        received = RECIEVED_NOTHING;
+
+	} else if (received == CHANGEPASS) {
+	    /* Loop until a matched password is obtained */
+	    while (MatchedPass == PASS_UNMATCHED) {
+	        /* Check if data is available to receive */
+	        if (BIT_IS_SET(UCSRA, RXC)) {
+	            /* Check if HMI_ECU is ready to send */
+	            if (UART_recieveByte() == MCU1_READYTOSEND) {
+	                /* Send Control_ECU ready to receive signal */
+	                UART_sendByte(MCU2_READYTORECIEVE);
+	            }
+
+	            /* Save new password */
+	            CONTROL_newPasswordSave();
+
+	    		/* Save the Password in the eeprom */
+		    	CONTROL_savePasswordMemory();
+
+	            /* Check the password */
+	            MatchedPass = CONTROL_passwordCheck();
+
+	            /* Send Control ECU ready to send signal */
+	            UART_sendByte(MCU2_READYTOSEND);
+
+	            /* Wait until HMI_ECU is ready to receive */
+	            while (UART_recieveByte() != MCU1_READYTORECIEVE);
+
+	            /* Send if password are matched or not to HMI_ECU */
+	            UART_sendByte(MatchedPass);
+	        }
+	    }
+	    /* Reset received flag */
+	    received = RECIEVED_NOTHING;
+	}
+	else if (received == OPEN_DOOR)
+	{
+		    TIMER_init(&TIMER_Configuration);
+		    DcMotor_Rotate(CLOCKWISE, 20);
+		 /* Reset received flag */
+			received = RECIEVED_NOTHING;
+	}
+}
+
+}
+
+
